@@ -1,4 +1,5 @@
 import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
+import { Magazine } from "./magazine.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 
@@ -224,6 +225,43 @@ $("#deleteBtn").onclick = async () => {
 // ------------------------------------------------------------------ PDF-Viewer
 
 const pagesEl = $("#pages");
+state.mode = localStorage.getItem("viewMode") || "mag";
+const mag = new Magazine($("#mag"), {
+  onChange: (n) => setCurrent(n),
+  labelOf: (n) => pageLabel(n),
+  titleOf: (n) => { const i = articleAt(n); return i >= 0 ? state.doc.articles[i].title : ""; },
+});
+
+function applyMode() {
+  const isMag = state.mode === "mag";
+  $("#mag").classList.toggle("hidden", !isMag);
+  pagesEl.classList.toggle("hidden", isMag);
+  $("#modeBtn").textContent = isMag ? "📖 Magazin" : "📜 Scrollen";
+  $("#modeBtn").title = isMag ? "Zur Scroll-Ansicht wechseln" : "Zur Magazin-Ansicht wechseln";
+  $("#stripBtn").classList.toggle("hidden", !isMag);
+}
+applyMode();
+
+$("#modeBtn").onclick = () => {
+  const keep = state.current;
+  state.mode = state.mode === "mag" ? "scroll" : "mag";
+  localStorage.setItem("viewMode", state.mode);
+  applyMode();
+  state.fit = true;
+  layout();
+  goTo(keep, false);
+};
+$("#stripBtn").onclick = () => $("#mag .mag-strip").classList.toggle("hidden");
+$("#fsBtn").onclick = () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.querySelector(".viewer").requestFullscreen?.();
+};
+document.addEventListener("fullscreenchange", () => setTimeout(layout, 50));
+
+function step(dir) {
+  if (state.mode === "mag") dir > 0 ? mag.next() : mag.prev();
+  else goTo(state.current + dir, false);
+}
 
 async function loadPdf(url) {
   state.pdf?.destroy();
@@ -253,6 +291,7 @@ async function loadPdf(url) {
     entries.forEach((e) => e.isIntersecting && renderPage(Number(e.target.dataset.page)));
   }, { root: pagesEl, rootMargin: "1200px 0px" });
   pagesEl.querySelectorAll(".page").forEach((d) => state.observer.observe(d));
+  mag.open(state.pdf, state.sizes);
   state.fit = true;
   layout();
 }
@@ -264,6 +303,11 @@ function fitScale() {
 
 function layout() {
   if (!state.pdf) return;
+  if (state.mode === "mag") {
+    mag.layout();
+    $("#zoomLabel").textContent = `${Math.round(mag.zoom * 100)} %`;
+    return;
+  }
   const keep = state.current;
   if (state.fit) state.scale = fitScale();
   $("#zoomLabel").textContent = `${Math.round(state.scale * 100)} %`;
@@ -299,6 +343,11 @@ async function renderPage(n) {
 function goTo(n, flash = true) {
   if (!state.pdf) return;
   n = Math.min(Math.max(1, Math.round(n)), state.pdf.numPages);
+  if (state.mode === "mag") {
+    mag.show(n, { flash });
+    setCurrent(n);
+    return;
+  }
   const el = pagesEl.querySelector(`.page[data-page="${n}"]`);
   pagesEl.scrollTop = el.offsetTop - 8;
   setCurrent(n);
@@ -342,18 +391,20 @@ pagesEl.addEventListener("scroll", () => {
   }, 80);
 });
 
-$("#prevBtn").onclick = () => goTo(state.current - 1, false);
-$("#nextBtn").onclick = () => goTo(state.current + 1, false);
+$("#prevBtn").onclick = () => step(-1);
+$("#nextBtn").onclick = () => step(1);
 $("#pageInput").onchange = (e) => goTo(Number(e.target.value));
-$("#zoomIn").onclick = () => { state.fit = false; state.scale = Math.min(4, state.scale * 1.2); layout(); };
-$("#zoomOut").onclick = () => { state.fit = false; state.scale = Math.max(0.3, state.scale / 1.2); layout(); };
-$("#fitBtn").onclick = () => { state.fit = true; layout(); };
+const magZoom = (z) => { mag.setZoom(z); $("#zoomLabel").textContent = `${Math.round(mag.zoom * 100)} %`; };
+$("#zoomIn").onclick = () => state.mode === "mag" ? magZoom(mag.zoom * 1.25) : zoomScroll(1.2);
+$("#zoomOut").onclick = () => state.mode === "mag" ? magZoom(mag.zoom / 1.25) : zoomScroll(1 / 1.2);
+function zoomScroll(f) { state.fit = false; state.scale = Math.min(4, Math.max(0.3, state.scale * f)); layout(); }
+$("#fitBtn").onclick = () => { state.fit = true; if (state.mode === "mag") magZoom(1); else layout(); };
 let resizeTimer;
-window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => state.fit && layout(), 200); });
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => (state.fit || state.mode === "mag") && layout(), 200); });
 document.addEventListener("keydown", (e) => {
   if ($("#docView").classList.contains("hidden") || e.target.matches("input, textarea")) return;
-  if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); goTo(state.current + 1, false); }
-  if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); goTo(state.current - 1, false); }
+  if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); step(1); }
+  if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); step(-1); }
 });
 
 // ------------------------------------------------------------------ Für dich / Profil

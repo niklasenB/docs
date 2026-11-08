@@ -24,7 +24,9 @@ PDF- und EPUB-Dateien ohne DRM kannst du auch direkt hochladen.
 | **Themen** | Themenblöcke mit Beschreibung und den zugehörigen Artikeln |
 | **Artikel** | Alle Artikel mit Seitenbereich, Kurzfassung, Schlagworten und Filter |
 | **Suche** | Volltextsuche im PDF mit Trefferstellen |
-| **Viewer** | Endlos-Scrollen, Zoom, Seiteneingabe, Pfeiltasten. Der aktuelle Artikel wird markiert, die URL (`#doc=…&page=…`) merkt sich die Position |
+| **Magazin-Ansicht** | E-Paper-Darstellung: Titelseite allein, danach Doppelseiten wie im gedruckten Heft. Umblättern mit 3D-Animation per Pfeil, Klick auf den Seitenrand, Wischen oder Tastatur. Miniaturleiste aller Doppelseiten, Vollbild, Doppelklick zum Zoomen. Auf schmalen Bildschirmen und im Hochformat Einzelseiten |
+| **Scroll-Ansicht** | Alternative per Umschalter: Endlos-Scrollen, Zoom, Seiteneingabe |
+| **Navigation** | Artikel-, Themen- und Suchtreffer-Klicks sowie der Podcast blättern in beiden Ansichten zur richtigen (Doppel-)Seite. Die Zielseite wird kurz markiert, der aktuelle Artikel hervorgehoben, die Position bleibt in der URL (`#doc=…&page=…`) erhalten |
 | **Bibliothek** | Analysierte Dokumente werden gespeichert. Das gleiche PDF wird nicht doppelt analysiert |
 
 ## Start mit Docker (empfohlen, inklusive ACSM-Unterstützung)
@@ -113,7 +115,7 @@ app/pdftools.py   EPUB→PDF, Text/Inhaltsverzeichnis je Seite, Volltextsuche
 app/ai.py         Claude-Analyse (Artikel, Zusammenfassung, Themen) und Personalisierung
 app/profile.py    Leseprofil und Leseverlauf
 app/audio.py      Podcast: Dialog-Skript (Claude) + lokale Sprachsynthese (Piper)
-app/static/       Oberfläche (Dropzone, Übersicht, PDF-Viewer mit pdf.js)
+app/static/       Oberfläche (Dropzone, Übersicht, PDF-Viewer mit pdf.js; magazine.js = E-Paper-Ansicht)
 Dockerfile        baut libgourou + App
 ```
 
