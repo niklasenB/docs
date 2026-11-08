@@ -124,13 +124,14 @@ def _toc_block(toc: list[dict]) -> str:
 
 # --------------------------------------------------------------------------- API-Aufruf
 
-def _call(user_text: str, schema: dict, max_tokens: int = 64000) -> dict:
+def _call(user_text: str, schema: dict, max_tokens: int = 64000, system: str | None = None,
+          effort: str | None = None) -> dict:
     kwargs = dict(
         model=config.CLAUDE_MODEL,
         max_tokens=max_tokens,
-        system=_system(),
+        system=system or _system(),
         messages=[{"role": "user", "content": user_text}],
-        output_config={"effort": config.CLAUDE_EFFORT, "format": {"type": "json_schema", "schema": schema}},
+        output_config={"effort": effort or config.CLAUDE_EFFORT, "format": {"type": "json_schema", "schema": schema}},
     )
     if config.CLAUDE_FALLBACK:
         kwargs.update(betas=["server-side-fallback-2026-07-01"], fallbacks="default")
@@ -269,3 +270,123 @@ def _synthesize(meta: str, articles: list[dict], progress) -> dict:
         SYNTHESIS_SCHEMA,
         max_tokens=32000,
     )
+
+
+# --------------------------------------------------------------------------- Personalisierung
+
+PERSONAL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "personal_summary": {
+            "type": "string",
+            "description": "2-5 Sätze: Was in diesem Dokument für diese Person relevant ist und warum",
+        },
+        "recommendations": {
+            "type": "array",
+            "description": "Artikel, die direkt zu den Interessen passen, wichtigste zuerst",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "article_index": {"type": "integer"},
+                    "score": {"type": "integer", "description": "3 = sehr relevant, 2 = relevant, 1 = am Rande"},
+                    "interest": {"type": "string", "description": "Welches Interesse der Artikel bedient"},
+                    "reason": {"type": "string", "description": "Ein Satz, konkret auf den Artikelinhalt bezogen"},
+                },
+                "required": ["article_index", "score", "interest", "reason"],
+                "additionalProperties": False,
+            },
+        },
+        "discoveries": {
+            "type": "array",
+            "description": "Artikel außerhalb der bekannten Interessen, die trotzdem lohnen könnten",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "article_index": {"type": "integer"},
+                    "bridge": {"type": "string", "description": "Die Brücke: an welches bekannte Interesse das anknüpft"},
+                    "reason": {"type": "string", "description": "Warum es neugierig machen könnte"},
+                },
+                "required": ["article_index", "bridge", "reason"],
+                "additionalProperties": False,
+            },
+        },
+        "deepen": {
+            "type": "array",
+            "description": "Pro berührtem Interesse: Impulse, um tiefer einzusteigen",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "interest": {"type": "string"},
+                    "questions": {"type": "array", "items": {"type": "string"},
+                                  "description": "2-3 Leitfragen zum Weiterdenken"},
+                    "search_terms": {"type": "array", "items": {"type": "string"},
+                                     "description": "2-4 kurze Suchbegriffe, die wörtlich im Dokument vorkommen"},
+                    "next_step": {"type": "string",
+                                  "description": "Ein konkreter Vorschlag außerhalb des Dokuments (Buch, Thema, Frage)"},
+                },
+                "required": ["interest", "questions", "search_terms", "next_step"],
+                "additionalProperties": False,
+            },
+        },
+        "suggested_interests": {
+            "type": "array",
+            "description": "Neue Interessen, die zum Profil passen könnten",
+            "items": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["name", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["personal_summary", "recommendations", "discoveries", "deepen", "suggested_interests"],
+    "additionalProperties": False,
+}
+
+_EXPLORATION = {
+    0: "Fokus: Empfiehl vor allem Passendes. Höchstens 1 Entdeckung, nur sehr nahe an den Interessen. "
+       "1-2 neue Interessen vorschlagen.",
+    1: "Ausgewogen: 2-3 Entdeckungen, die klar an ein bekanntes Interesse anknüpfen. 2-3 neue Interessen vorschlagen.",
+    2: "Neugierig: 3-5 Entdeckungen, gern auch überraschende, solange die Brücke nachvollziehbar ist. "
+       "3-5 neue Interessen vorschlagen, auch etwas entferntere.",
+}
+
+
+def personalize(analysis: dict, profile: dict, history: list[dict]) -> dict:
+    arts = analysis["articles"]
+    listing = "\n".join(
+        f'[{i}] {a["title"]} (S. {a["start_page"]}–{a["end_page"]}): {a["summary"]} '
+        f'Schlagworte: {", ".join(a["keywords"])}'
+        for i, a in enumerate(arts)
+    )
+    read = "\n".join(f'- {h["title"]} ({", ".join(h.get("keywords", []))})' for h in history[-40:]) or "(noch nichts)"
+    system = (
+        "Du bist ein Lesebegleiter. Du hilfst einer Person, in einem Dokument das für sie Wichtige "
+        "zu finden und ihre Interessen behutsam zu erweitern: Neues soll immer über eine "
+        "nachvollziehbare Brücke an Bekanntes anknüpfen, nie beliebig sein. Begründungen beziehen "
+        "sich konkret auf den Artikelinhalt, nicht auf Allgemeinplätze. Themen, die die Person "
+        "ausdrücklich nicht interessieren, empfiehlst du nicht. Verwende nur Artikelindizes aus der "
+        f"Liste. Antworte auf {config.SUMMARY_LANGUAGE}."
+    )
+    user = (
+        "<profil>\n"
+        f"Interessen: {', '.join(profile.get('interests', [])) or '(keine angegeben)'}\n"
+        f"Über mich: {profile.get('about') or '(keine Angabe)'}\n"
+        f"Interessiert mich nicht: {', '.join(profile.get('avoid', [])) or '(nichts)'}\n"
+        "</profil>\n\n"
+        f"<zuletzt_gelesen>\n{read}\n</zuletzt_gelesen>\n\n"
+        f"Entdeckungsmodus – {_EXPLORATION.get(profile.get('exploration', 1), _EXPLORATION[1])}\n\n"
+        f"Dokument: {analysis.get('title')}\n<artikel>\n{listing}\n</artikel>\n\n"
+        "Erstelle die persönliche Auswertung. Nutze das Leseverhalten als zusätzliches Signal für "
+        "Interessen. Schlage keine Interessen vor, die schon im Profil stehen."
+    )
+    res = _call(user, PERSONAL_SCHEMA, max_tokens=16000, system=system, effort="low")
+    n = len(arts)
+    res["recommendations"] = sorted(
+        (r for r in res["recommendations"] if 0 <= r["article_index"] < n),
+        key=lambda r: -r["score"],
+    )
+    res["discoveries"] = [d for d in res["discoveries"] if 0 <= d["article_index"] < n]
+    known = {i.lower() for i in profile.get("interests", [])}
+    res["suggested_interests"] = [s for s in res["suggested_interests"] if s["name"].lower() not in known]
+    return res

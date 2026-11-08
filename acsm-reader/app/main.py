@@ -12,11 +12,12 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import acsm, ai, config, pdftools
+from . import profile as prof
 
 STATIC = Path(__file__).parent / "static"
 DOCS = config.DATA_DIR / "documents"
@@ -89,7 +90,15 @@ def _process(job_id: str, upload: Path, original_name: str, reanalyze: bool = Fa
             "toc": doc["toc"],
             "created": time.time(),
         }
-        (target / "analysis.json").write_text(json.dumps({**meta, **result}, ensure_ascii=False, indent=1))
+        analysis = {**meta, **result}
+        (target / "analysis.json").write_text(json.dumps(analysis, ensure_ascii=False, indent=1))
+        p = prof.load()
+        if not prof.is_empty(p):
+            progress("Persönliche Auswertung für dein Profil …")
+            try:
+                _personal(target, analysis, p)
+            except ai.AnalysisError:
+                pass  # kann später im Reiter "Für dich" nachgeholt werden
         _update(job_id, stage="done", doc_id=doc_id, message="Fertig.")
     except (acsm.AcsmError, ai.AnalysisError, ValueError) as e:
         _update(job_id, stage="error", error=str(e))
@@ -192,6 +201,72 @@ def document_reanalyze(doc_id: str):
 def document_delete(doc_id: str):
     shutil.rmtree(_doc_dir(doc_id))
     return {"ok": True}
+
+
+def _personal(d: Path, analysis: dict, p: dict) -> dict:
+    res = ai.personalize(analysis, p, prof.history())
+    res["profile_hash"] = prof.fingerprint(p)
+    (d / f"personal-{res['profile_hash']}.json").write_text(json.dumps(res, ensure_ascii=False, indent=1))
+    return res
+
+
+@app.get("/api/profile")
+def get_profile():
+    return prof.load()
+
+
+@app.put("/api/profile")
+def put_profile(data: dict = Body(...)):
+    return prof.save(data)
+
+
+@app.get("/api/history")
+def get_history():
+    return prof.history()[::-1]
+
+
+@app.delete("/api/history")
+def delete_history():
+    prof.clear_history()
+    return {"ok": True}
+
+
+@app.post("/api/history")
+def post_history(data: dict = Body(...)):
+    d = _doc_dir(str(data.get("doc_id", "")))
+    a = json.loads((d / "analysis.json").read_text())
+    i = int(data.get("article_index", -1))
+    if not 0 <= i < len(a["articles"]):
+        raise HTTPException(400, "ungültiger Artikel")
+    art = a["articles"][i]
+    prof.add_history({"doc_id": d.name, "doc_title": a["title"], "title": art["title"],
+                      "keywords": art["keywords"]})
+    return {"ok": True}
+
+
+@app.get("/api/documents/{doc_id}/personal")
+def get_personal(doc_id: str):
+    d = _doc_dir(doc_id)
+    p = prof.load()
+    if prof.is_empty(p):
+        return {"status": "no_profile"}
+    f = d / f"personal-{prof.fingerprint(p)}.json"
+    if f.exists():
+        return {"status": "ok", **json.loads(f.read_text())}
+    return {"status": "missing"}
+
+
+@app.post("/api/documents/{doc_id}/personal")
+def post_personal(doc_id: str):
+    d = _doc_dir(doc_id)
+    p = prof.load()
+    if prof.is_empty(p):
+        raise HTTPException(400, "Bitte zuerst ein Profil anlegen.")
+    analysis = json.loads((d / "analysis.json").read_text())
+    try:
+        return {"status": "ok", **_personal(d, analysis, p)}
+    except ai.AnalysisError as e:
+        raise HTTPException(502, str(e)) from e
 
 
 app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")

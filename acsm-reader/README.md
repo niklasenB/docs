@@ -17,6 +17,8 @@ PDF- und EPUB-Dateien ohne DRM kannst du auch direkt hochladen.
 | Bereich | Inhalt |
 |---|---|
 | **Dropzone** | `.acsm`, `.pdf`, `.epub` per Drag & Drop oder Dateiauswahl, Fortschritt in Schritten |
+| **Profil** | Interessen, „Über mich“, Ausschlüsse und Entdeckungsmodus (Fokus / Ausgewogen / Neugierig) |
+| **Für dich** | Was im Heft für dich relevant ist (mit Begründung und Relevanz-Sternen), Artikel „über den Tellerrand“ mit Anknüpfungspunkt an deine Interessen, Leitfragen und Suchbegriffe zum Vertiefen sowie neue Interessen zum Übernehmen per Klick |
 | **Überblick** | Titel, Gesamtzusammenfassung, Kernaussagen |
 | **Themen** | Themenblöcke mit Beschreibung und den zugehörigen Artikeln |
 | **Artikel** | Alle Artikel mit Seitenbereich, Kurzfassung, Schlagworten und Filter |
@@ -72,6 +74,12 @@ im `PATH` liegen. Oben rechts zeigt die App an, ob ACSM verfügbar ist.
 - Die Antworten nutzen *Structured Outputs* (JSON-Schema). Dadurch ist das Ergebnis immer maschinenlesbar.
 - Kleine Dokumente brauchen einen API-Aufruf. Große Dokumente brauchen einen pro Abschnitt und einen
   für die Synthese. Die Ergebnisse landen in `data/documents/<hash>/analysis.json`.
+- **Personalisierung:** Die Auswertung „Für dich“ nutzt nur die fertige Artikelliste (Titel,
+  Kurzfassung, Schlagworte), nicht den Volltext. Dazu kommen dein Profil und dein Leseverlauf
+  (angeklickte Artikel). Das ist ein kleiner, günstiger Aufruf mit `effort: low`. Ergebnisse werden je
+  Profilstand gespeichert (`personal-<hash>.json`). Änderst du das Profil, wird beim nächsten Öffnen
+  neu ausgewertet, ohne den Volltext erneut zu analysieren. Profil und Verlauf liegen in
+  `data/profile.json` und `data/history.json`.
 - Gescannte PDFs ohne Textebene müssen vorher per OCR aufbereitet werden (z. B. mit `ocrmypdf`).
 
 ## Projektstruktur
@@ -80,7 +88,8 @@ im `PATH` liegen. Oben rechts zeigt die App an, ob ACSM verfügbar ist.
 app/main.py       FastAPI-Server: Upload, Jobs, Bibliothek, PDF-Auslieferung, Suche
 app/acsm.py       libgourou-Aufrufe (Aktivierung, Download, Aufbereitung)
 app/pdftools.py   EPUB→PDF, Text/Inhaltsverzeichnis je Seite, Volltextsuche
-app/ai.py         Claude-Analyse (Artikel, Zusammenfassung, Themen)
+app/ai.py         Claude-Analyse (Artikel, Zusammenfassung, Themen) und Personalisierung
+app/profile.py    Leseprofil und Leseverlauf
 app/static/       Oberfläche (Dropzone, Übersicht, PDF-Viewer mit pdf.js)
 Dockerfile        baut libgourou + App
 ```

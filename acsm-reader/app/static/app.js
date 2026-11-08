@@ -5,7 +5,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdfjs/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const state = { doc: null, pdf: null, sizes: [], scale: 1, fit: true, current: 1, rendered: new Map(), observer: null };
+const state = { recommended: new Set(), profile: null, doc: null, pdf: null, sizes: [], scale: 1, fit: true, current: 1, rendered: new Map(), observer: null };
 
 // ------------------------------------------------------------------ Start / Upload
 
@@ -115,7 +115,10 @@ async function openDoc(id, page = 1) {
   document.title = `${doc.title} – ACSM Reader`;
   renderOverview(doc);
   renderThemes(doc);
+  state.recommended = new Set();
   renderArticles(doc);
+  showTab("foryou");
+  loadPersonal();
   $("#searchResults").innerHTML = "";
   $("#searchInput").value = "";
   await loadPdf(`/api/documents/${id}/pdf`);
@@ -133,16 +136,18 @@ function renderOverview(doc) {
   $("#ovModel").textContent = doc.model || "Claude";
 }
 
-function articleItem(a, i, compact = false) {
+function articleItem(a, i, compact = false, extra = "") {
+  const star = state.recommended.has(i) ? '<span class="star" title="Passt zu deinem Profil">★</span> ' : "";
   return `<li class="art${compact ? " compact" : ""}" data-i="${i}" data-page="${a.start_page}">
-    <div class="t"><span>${esc(a.title)}</span><span class="pg">${range(a)}</span></div>
+    <div class="t"><span>${star}${esc(a.title)}</span><span class="pg">${range(a)}</span></div>${extra}
     <div class="s">${esc(a.summary)}</div>
-    ${compact ? "" : `<div class="chips">${a.keywords.map((k) => `<span class="chip">${esc(k)}</span>`).join("")}</div>`}
+    ${compact ? "" : `<div class="chips">${a.keywords.map((k) => `<span class="chip btn kw" data-kw="${esc(k)}" title="Als Interesse ins Profil übernehmen">${esc(k)}</span>`).join("")}</div>`}
   </li>`;
 }
 
 function bindArticleClicks(root) {
-  root.querySelectorAll(".art").forEach((li) => (li.onclick = () => goTo(Number(li.dataset.page))));
+  root.querySelectorAll(".art").forEach((li) => (li.onclick = () => openArticle(Number(li.dataset.i))));
+  root.querySelectorAll(".kw").forEach((c) => (c.onclick = (e) => { e.stopPropagation(); addInterest(c.dataset.kw); }));
 }
 
 function renderThemes(doc) {
@@ -168,6 +173,9 @@ function renderArticles(doc, filter = "") {
 }
 $("#articleFilter").oninput = (e) => renderArticles(state.doc, e.target.value);
 
+function showTab(name) {
+  document.querySelector(`.tabs button[data-tab="${name}"]`).click();
+}
 document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("hidden", t.id !== `tab-${b.dataset.tab}`));
@@ -333,6 +341,175 @@ document.addEventListener("keydown", (e) => {
   if ($("#docView").classList.contains("hidden") || e.target.matches("input, textarea")) return;
   if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); goTo(state.current + 1, false); }
   if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); goTo(state.current - 1, false); }
+});
+
+// ------------------------------------------------------------------ Für dich / Profil
+
+function openArticle(i) {
+  const a = state.doc.articles[i];
+  goTo(a.start_page);
+  fetch("/api/history", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ doc_id: state.doc.doc_id, article_index: i }) });
+}
+
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.remove("hidden");
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.add("hidden"), 2500);
+}
+
+async function loadProfile() {
+  state.profile = await fetch("/api/profile").then((r) => r.json());
+  return state.profile;
+}
+
+async function saveProfile(p) {
+  state.profile = await fetch("/api/profile", { method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(p) }).then((r) => r.json());
+  return state.profile;
+}
+
+async function addInterest(name) {
+  const p = state.profile || await loadProfile();
+  if (p.interests.some((x) => x.toLowerCase() === name.toLowerCase())) return toast(`„${name}“ ist schon in deinem Profil.`);
+  await saveProfile({ ...p, interests: [...p.interests, name] });
+  toast(`„${name}“ zum Profil hinzugefügt.`);
+  return true;
+}
+
+const stars = (n) => `<span class="stars" title="Relevanz">${"★".repeat(n)}${"☆".repeat(3 - n)}</span>`;
+
+async function loadPersonal(force = false) {
+  const box = $("#foryou");
+  const docId = state.doc.doc_id;
+  let res = force ? { status: "missing" } : await fetch(`/api/documents/${docId}/personal`).then((r) => r.json());
+  if (res.status === "no_profile") {
+    box.innerHTML = `<div class="cta"><h2>Was interessiert dich?</h2>
+      <p class="muted">Lege ein Leseprofil an. Dann zeigt dir Claude, welche Artikel zu dir passen,
+      was du Neues entdecken könntest und wie du ein Thema vertiefst.</p>
+      <button class="primary" id="ctaProfile">Profil anlegen</button></div>`;
+    $("#ctaProfile").onclick = openProfile;
+    return;
+  }
+  if (res.status === "missing") {
+    box.innerHTML = '<div class="inline-spinner"></div><p class="muted" style="text-align:center">Claude wertet das Dokument für dein Profil aus …</p>';
+    const r = await fetch(`/api/documents/${docId}/personal`, { method: "POST" });
+    res = await r.json().catch(() => ({}));
+    if (state.doc?.doc_id !== docId) return;
+    if (!r.ok) {
+      box.innerHTML = `<p class="error">${esc(res.detail || "Persönliche Auswertung fehlgeschlagen.")}</p>
+        <button class="linkbtn" id="retryPersonal">Erneut versuchen</button>`;
+      $("#retryPersonal").onclick = () => loadPersonal(true);
+      return;
+    }
+  }
+  if (state.doc?.doc_id !== docId) return;
+  renderForYou(res);
+}
+
+function renderForYou(r) {
+  const doc = state.doc;
+  state.recommended = new Set(r.recommendations.filter((x) => x.score >= 2).map((x) => x.article_index));
+  renderArticles(doc, $("#articleFilter").value);
+  renderThemes(doc);
+  const rec = r.recommendations.map((x) => articleItem(doc.articles[x.article_index], x.article_index, true,
+    `<div class="reason">${stars(x.score)} <span class="chip">${esc(x.interest)}</span> ${esc(x.reason)}</div>`)).join("");
+  const disc = r.discoveries.map((x) => articleItem(doc.articles[x.article_index], x.article_index, true,
+    `<div class="bridge">↔ knüpft an: ${esc(x.bridge)}</div><div class="reason">${esc(x.reason)}</div>`)).join("");
+  const deepen = r.deepen.map((d) => `<div class="deepen"><b>${esc(d.interest)}</b>
+      <ul>${d.questions.map((q) => `<li>${esc(q)}</li>`).join("")}</ul>
+      <div class="chips">${d.search_terms.map((t) => `<span class="chip btn term" data-term="${esc(t)}" title="Im Dokument suchen">🔍 ${esc(t)}</span>`).join("")}</div>
+      <div class="next">➜ ${esc(d.next_step)}</div></div>`).join("");
+  const sugg = r.suggested_interests.map((s) => `<div class="sugg">
+      <span class="chip btn add" data-name="${esc(s.name)}">${esc(s.name)}</span>
+      <span class="muted">${esc(s.reason)}</span></div>`).join("");
+  $("#foryou").innerHTML = `
+    <div class="summary"><p>${esc(r.personal_summary)}</p></div>
+    <h3 class="fy-section">🎯 Passt zu dir <span class="muted">${r.recommendations.length}</span></h3>
+    <ul class="articles">${rec || '<li class="muted">Diesmal nichts direkt Passendes.</li>'}</ul>
+    <h3 class="fy-section">🧭 Über den Tellerrand <span class="muted">Neues mit Anknüpfungspunkt</span></h3>
+    <ul class="articles">${disc || '<li class="muted">Keine Vorschläge.</li>'}</ul>
+    ${deepen ? `<h3 class="fy-section">💡 Weiterdenken</h3>${deepen}` : ""}
+    ${sugg ? `<h3 class="fy-section">🌱 Neue Interessen? <span class="muted">antippen zum Übernehmen</span></h3>${sugg}` : ""}
+    <p class="muted small" style="margin-top:20px">Ausgewertet für dein aktuelles Profil ·
+      <button class="linkbtn" id="profileEdit2">Profil bearbeiten</button> ·
+      <button class="linkbtn" id="refreshPersonal">neu auswerten</button></p>`;
+  const box = $("#foryou");
+  bindArticleClicks(box);
+  box.querySelectorAll(".term").forEach((c) => (c.onclick = () => {
+    showTab("search");
+    $("#searchInput").value = c.dataset.term;
+    $("#searchForm").requestSubmit();
+  }));
+  box.querySelectorAll(".add").forEach((c) => (c.onclick = async () => {
+    if (await addInterest(c.dataset.name)) { c.classList.remove("add"); c.classList.add("added"); }
+  }));
+  $("#profileEdit2").onclick = openProfile;
+  $("#refreshPersonal").onclick = () => loadPersonal(true);
+}
+
+// Tag-Eingabe für Interessen / Ausschlüsse
+function tagInput(el) {
+  const input = el.querySelector("input");
+  let tags = [];
+  const render = () => {
+    el.querySelectorAll(".tag").forEach((t) => t.remove());
+    tags.forEach((t, i) => {
+      const span = document.createElement("span");
+      span.className = "tag";
+      span.innerHTML = `${esc(t)}<button type="button" title="Entfernen">×</button>`;
+      span.querySelector("button").onclick = () => { tags.splice(i, 1); render(); };
+      el.insertBefore(span, input);
+    });
+  };
+  const commit = () => {
+    input.value.split(",").map((x) => x.trim()).filter(Boolean).forEach((v) => {
+      if (!tags.some((t) => t.toLowerCase() === v.toLowerCase())) tags.push(v);
+    });
+    input.value = "";
+    render();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); commit(); }
+    if (e.key === "Backspace" && !input.value && tags.length) { tags.pop(); render(); }
+  });
+  input.addEventListener("blur", commit);
+  el.onclick = () => input.focus();
+  return { get: () => { commit(); return tags; }, set: (v) => { tags = [...v]; render(); } };
+}
+const interestsTI = tagInput($("#interestsInput"));
+const avoidTI = tagInput($("#avoidInput"));
+
+async function openProfile() {
+  const p = await loadProfile();
+  interestsTI.set(p.interests);
+  avoidTI.set(p.avoid);
+  $("#aboutInput").value = p.about;
+  document.querySelector(`input[name=exploration][value="${p.exploration}"]`).checked = true;
+  const h = await fetch("/api/history").then((r) => r.json());
+  $("#historyInfo").textContent = h.length
+    ? `Dein Leseverlauf (${h.length} Artikel) fließt als zusätzliches Signal ein.`
+    : "Angeklickte Artikel werden als Leseverlauf berücksichtigt.";
+  $("#profileDlg").returnValue = "";
+  $("#profileDlg").showModal();
+}
+$("#profileBtn").onclick = openProfile;
+$("#clearHistoryBtn").onclick = async () => {
+  await fetch("/api/history", { method: "DELETE" });
+  $("#historyInfo").textContent = "Leseverlauf gelöscht.";
+};
+$("#profileDlg").addEventListener("close", async () => {
+  if ($("#profileDlg").returnValue !== "save") return;
+  await saveProfile({
+    interests: interestsTI.get(),
+    avoid: avoidTI.get(),
+    about: $("#aboutInput").value,
+    exploration: Number(document.querySelector("input[name=exploration]:checked")?.value ?? 1),
+  });
+  toast("Profil gespeichert.");
+  if (state.doc) loadPersonal();
 });
 
 init();

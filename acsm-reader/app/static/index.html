@@ -12,7 +12,42 @@
   <span class="doc-title" id="docTitle"></span>
   <span class="spacer"></span>
   <span class="badge" id="statusBadge"></span>
+  <button class="profile-btn" id="profileBtn" title="Interessenprofil">👤 Profil</button>
 </header>
+
+<!-- Interessenprofil -->
+<dialog id="profileDlg">
+  <form method="dialog" id="profileForm">
+    <h2>Dein Leseprofil</h2>
+    <p class="muted small">Damit Claude dir sagt, was in einem Heft für dich drinsteckt – und was du Neues entdecken könntest.</p>
+
+    <label class="fl">Was interessiert dich?</label>
+    <div class="taginput" id="interestsInput"><input placeholder="z. B. Klimapolitik, Stadtplanung … (Enter)"></div>
+
+    <label class="fl" for="aboutInput">Über dich <span class="muted small">(optional)</span></label>
+    <textarea id="aboutInput" rows="3" placeholder="z. B. Ingenieurin in der Energiebranche, lese gern Hintergründe statt Tagesnachrichten, möchte mehr über Wirtschaft lernen."></textarea>
+
+    <label class="fl">Interessiert mich nicht</label>
+    <div class="taginput" id="avoidInput"><input placeholder="z. B. Fußball, Promis (Enter)"></div>
+
+    <label class="fl">Wie viel Neues soll vorgeschlagen werden?</label>
+    <div class="seg" id="explorationSeg">
+      <label><input type="radio" name="exploration" value="0"><span>🎯 Fokus</span></label>
+      <label><input type="radio" name="exploration" value="1"><span>⚖️ Ausgewogen</span></label>
+      <label><input type="radio" name="exploration" value="2"><span>🧭 Neugierig</span></label>
+    </div>
+
+    <p class="muted small" id="historyInfo"></p>
+
+    <div class="dlg-actions">
+      <button type="button" class="linkbtn danger" id="clearHistoryBtn">Leseverlauf löschen</button>
+      <span class="spacer"></span>
+      <button value="cancel" formnovalidate>Abbrechen</button>
+      <button value="save" class="primary" id="profileSave">Speichern</button>
+    </div>
+  </form>
+</dialog>
+<div class="toast hidden" id="toast"></div>
 
 <!-- Startansicht: Dropzone + Bibliothek -->
 <main id="startView" class="start">
@@ -45,13 +80,16 @@
 <main id="docView" class="doc hidden">
   <aside class="side">
     <nav class="tabs">
-      <button data-tab="overview" class="active">Überblick</button>
+      <button data-tab="foryou" class="active">Für dich</button>
+      <button data-tab="overview">Überblick</button>
       <button data-tab="themes">Themen</button>
       <button data-tab="articles">Artikel</button>
       <button data-tab="search">Suche</button>
     </nav>
 
-    <div class="tab" id="tab-overview">
+    <div class="tab" id="tab-foryou"><div id="foryou"></div></div>
+
+    <div class="tab hidden" id="tab-overview">
       <h2 id="ovTitle"></h2>
       <p class="muted" id="ovMeta"></p>
       <div id="ovSummary" class="summary"></div>
