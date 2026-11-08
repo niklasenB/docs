@@ -119,6 +119,8 @@ async function openDoc(id, page = 1) {
   renderArticles(doc);
   showTab("foryou");
   loadPersonal();
+  closePlayer();
+  loadPodcasts();
   $("#searchResults").innerHTML = "";
   $("#searchInput").value = "";
   await loadPdf(`/api/documents/${id}/pdf`);
@@ -141,12 +143,17 @@ function articleItem(a, i, compact = false, extra = "") {
   return `<li class="art${compact ? " compact" : ""}" data-i="${i}" data-page="${a.start_page}">
     <div class="t"><span>${star}${esc(a.title)}</span><span class="pg">${range(a)}</span></div>${extra}
     <div class="s">${esc(a.summary)}</div>
-    ${compact ? "" : `<div class="chips">${a.keywords.map((k) => `<span class="chip btn kw" data-kw="${esc(k)}" title="Als Interesse ins Profil übernehmen">${esc(k)}</span>`).join("")}</div>`}
+    ${compact ? "" : `<div class="chips"><span class="chip btn pod" data-i="${i}" title="Diesen Artikel als Podcast">🎧 anhören</span>${a.keywords.map((k) => `<span class="chip btn kw" data-kw="${esc(k)}" title="Als Interesse ins Profil übernehmen">${esc(k)}</span>`).join("")}</div>`}
   </li>`;
 }
 
 function bindArticleClicks(root) {
   root.querySelectorAll(".art").forEach((li) => (li.onclick = () => openArticle(Number(li.dataset.i))));
+  root.querySelectorAll(".pod").forEach((c) => (c.onclick = (e) => {
+    e.stopPropagation();
+    const i = Number(c.dataset.i);
+    openAudio("article", i, `Artikel: ${state.doc.articles[i].title}`);
+  }));
   root.querySelectorAll(".kw").forEach((c) => (c.onclick = (e) => { e.stopPropagation(); addInterest(c.dataset.kw); }));
 }
 
@@ -154,11 +161,17 @@ function renderThemes(doc) {
   const el = $("#themes");
   el.innerHTML = doc.themes.map((t, ti) => `
     <details class="theme" ${ti < 3 ? "open" : ""}>
-      <summary>${esc(t.name)}<span class="count">${t.article_indices.length}</span></summary>
+      <summary>${esc(t.name)}<span class="count">${t.article_indices.length}</span>
+        <button class="podbtn small" data-theme="${ti}" title="Thema als Podcast">🎧</button></summary>
       <p class="desc">${esc(t.description)}</p>
       <ul>${t.article_indices.map((i) => articleItem(doc.articles[i], i, true)).join("")}</ul>
     </details>`).join("") || '<p class="muted">Keine Themen erkannt.</p>';
   bindArticleClicks(el);
+  el.querySelectorAll("[data-theme]").forEach((b) => (b.onclick = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const t = doc.themes[Number(b.dataset.theme)];
+    openAudio("theme", Number(b.dataset.theme), `Thema: ${t.name}`);
+  }));
 }
 
 function renderArticles(doc, filter = "") {
@@ -427,6 +440,7 @@ function renderForYou(r) {
       <span class="muted">${esc(s.reason)}</span></div>`).join("");
   $("#foryou").innerHTML = `
     <div class="summary"><p>${esc(r.personal_summary)}</p></div>
+    <button class="podbtn" id="briefingBtn">🎧 Mein Briefing als Podcast</button>
     <h3 class="fy-section">🎯 Passt zu dir <span class="muted">${r.recommendations.length}</span></h3>
     <ul class="articles">${rec || '<li class="muted">Diesmal nichts direkt Passendes.</li>'}</ul>
     <h3 class="fy-section">🧭 Über den Tellerrand <span class="muted">Neues mit Anknüpfungspunkt</span></h3>
@@ -447,6 +461,7 @@ function renderForYou(r) {
     if (await addInterest(c.dataset.name)) { c.classList.remove("add"); c.classList.add("added"); }
   }));
   $("#profileEdit2").onclick = openProfile;
+  $("#briefingBtn").onclick = () => openAudio("briefing", -1, "Dein persönliches Briefing – deine Themen plus Entdeckungen");
   $("#refreshPersonal").onclick = () => loadPersonal(true);
 }
 
@@ -510,6 +525,142 @@ $("#profileDlg").addEventListener("close", async () => {
   });
   toast("Profil gespeichert.");
   if (state.doc) loadPersonal();
+});
+
+// ------------------------------------------------------------------ Podcast
+
+const audioEl = $("#plAudio");
+const player = { meta: null, seg: -1, article: -1 };
+
+function keyPrefix(kind, index) {
+  return kind === "document" ? "document-" : kind === "briefing" ? "briefing-" : `${kind}-${index}-`;
+}
+
+async function openAudio(kind, index, subject) {
+  state.audioReq = { kind, index };
+  $("#audioSubject").textContent = subject;
+  $("#audioErr").classList.add("hidden");
+  $("#audioProgress").classList.add("hidden");
+  $("#audioCreate").disabled = false;
+  const existing = (state.podcasts || []).filter((m) => m.key.startsWith(keyPrefix(kind, index)));
+  $("#audioExisting").innerHTML = existing.length
+    ? `<label class="fl">Schon erzeugt</label>${existing.map(podItem).join("")}` : "";
+  bindPodItems($("#audioExisting"), true);
+  $("#audioDlg").showModal();
+}
+
+$("#audioCreate").onclick = async () => {
+  const { kind, index } = state.audioReq;
+  const length = document.querySelector("input[name=length]:checked").value;
+  $("#audioCreate").disabled = true;
+  $("#audioErr").classList.add("hidden");
+  $("#audioProgress").classList.remove("hidden");
+  $("#audioMsg").textContent = "Wird gestartet …";
+  const docId = state.doc.doc_id;
+  const r = await fetch(`/api/documents/${docId}/audio`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, index, length }) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) return audioFail(data.detail || "Fehler beim Starten.");
+  const poll = async () => {
+    const j = await fetch(`/api/jobs/${data.job_id}`).then((x) => x.json());
+    $("#audioMsg").textContent = j.message || "";
+    if (j.stage === "error") return audioFail(j.error);
+    if (j.stage !== "done") return setTimeout(poll, 1500);
+    $("#audioDlg").close();
+    await loadPodcasts();
+    if (state.doc?.doc_id === docId) playPodcast(j.audio_key);
+  };
+  poll();
+};
+
+function audioFail(msg) {
+  $("#audioProgress").classList.add("hidden");
+  $("#audioErr").textContent = msg;
+  $("#audioErr").classList.remove("hidden");
+  $("#audioCreate").disabled = false;
+}
+
+const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+const LEN = { kurz: "kurz", mittel: "mittel", lang: "lang" };
+
+function podItem(m) {
+  const len = m.key.split("-").pop();
+  return `<div class="pod-item" data-key="${esc(m.key)}"><b>${esc(m.title)}</b>
+    <span class="muted small">${fmtTime(m.duration)} · ${esc(LEN[len] || "")}</span>
+    <button data-act="play">▶</button><button data-act="del" title="Löschen">🗑</button></div>`;
+}
+
+function bindPodItems(root, closeDialog = false) {
+  root.querySelectorAll(".pod-item").forEach((it) => {
+    it.querySelector("[data-act=play]").onclick = () => { if (closeDialog) $("#audioDlg").close(); playPodcast(it.dataset.key); };
+    it.querySelector("[data-act=del]").onclick = async () => {
+      if (!confirm("Podcast löschen?")) return;
+      await fetch(`/api/documents/${state.doc.doc_id}/audio/${it.dataset.key}`, { method: "DELETE" });
+      if (player.meta?.key === it.dataset.key) closePlayer();
+      it.remove();
+      loadPodcasts();
+    };
+  });
+}
+
+async function loadPodcasts() {
+  const docId = state.doc.doc_id;
+  const list = await fetch(`/api/documents/${docId}/audio`).then((r) => r.json()).catch(() => []);
+  if (state.doc?.doc_id !== docId) return;
+  state.podcasts = list;
+  $("#podcasts").innerHTML = `<h2>Podcasts</h2>
+    <p class="muted small">Erzeuge Podcasts über 🎧 bei einem Thema, einem Artikel, im Reiter „Für dich“ oder hier für die ganze Ausgabe.</p>
+    ${list.map(podItem).join("") || '<p class="muted">Noch keine Podcasts für dieses Dokument.</p>'}
+    <button class="podbtn" id="docPodcastBtn2">🎧 Ganze Ausgabe als Podcast</button>`;
+  bindPodItems($("#podcasts"));
+  $("#docPodcastBtn2").onclick = () => openAudio("document", -1, "Die ganze Ausgabe im Überblick");
+}
+$("#docPodcastBtn").onclick = () => openAudio("document", -1, "Die ganze Ausgabe im Überblick");
+
+async function playPodcast(key) {
+  const meta = await fetch(`/api/documents/${state.doc.doc_id}/audio/${key}`).then((r) => r.json());
+  player.meta = meta; player.seg = -1; player.article = -1;
+  $("#plTitle").textContent = meta.title;
+  $("#plScript").innerHTML = meta.segments.map((s, i) =>
+    `<li data-i="${i}"><span class="sp ${s.speaker}">${esc(meta.speakers[s.speaker])}:</span>${esc(s.text)}</li>`).join("");
+  $("#plScript").querySelectorAll("li").forEach((li) => (li.onclick = () => {
+    audioEl.currentTime = meta.segments[Number(li.dataset.i)].start + 0.01;
+    audioEl.play();
+  }));
+  $("#plNow").innerHTML = "";
+  $("#player").classList.remove("hidden");
+  audioEl.src = `/api/documents/${state.doc.doc_id}/audio/${key}/file`;
+  audioEl.play().catch(() => {});
+}
+
+function closePlayer() {
+  audioEl.pause();
+  audioEl.removeAttribute("src");
+  player.meta = null;
+  $("#player").classList.add("hidden");
+}
+$("#plClose").onclick = closePlayer;
+$("#plScriptBtn").onclick = () => $("#plScript").classList.toggle("hidden");
+
+audioEl.addEventListener("timeupdate", () => {
+  const m = player.meta;
+  if (!m) return;
+  const t = audioEl.currentTime;
+  let i = m.segments.findIndex((s) => t < s.end + 0.3);
+  if (i < 0) i = m.segments.length - 1;
+  if (i === player.seg) return;
+  player.seg = i;
+  const lis = $("#plScript").querySelectorAll("li");
+  lis.forEach((li, k) => li.classList.toggle("cur", k === i));
+  if (!$("#plScript").classList.contains("hidden")) lis[i]?.scrollIntoView({ block: "nearest" });
+  const ai = m.segments[i].article_index;
+  if (ai >= 0 && ai !== player.article) {
+    player.article = ai;
+    const a = state.doc.articles[ai];
+    $("#plNow").innerHTML = `📄 ${esc(a.title)} · <button id="plGo">${range(a)}</button>`;
+    $("#plGo").onclick = () => goTo(a.start_page);
+    if ($("#plFollow").checked) goTo(a.start_page, false);
+  }
 });
 
 init();

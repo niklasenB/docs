@@ -9,6 +9,11 @@ services:
       # - CLAUDE_MODEL=claude-opus-5-5
       # - CLAUDE_EFFORT=medium
       # - SUMMARY_LANGUAGE=Deutsch
+      # Podcast-Stimmen (Piper, lokal) und Sprechernamen:
+      # - PIPER_VOICE_A=de_DE-kerstin-low
+      # - PIPER_VOICE_B=de_DE-thorsten-medium
+      # - SPEAKER_A_NAME=Lena
+      # - SPEAKER_B_NAME=Jonas
     volumes:
       - ./data:/data   # Bibliothek + Adobe-Geräteaktivierung bleiben erhalten
     restart: unless-stopped

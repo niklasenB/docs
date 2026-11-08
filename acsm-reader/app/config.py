@@ -21,3 +21,11 @@ MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "200"))
 ACTIVATE_TIMEOUT = 120
 DOWNLOAD_TIMEOUT = 900
 DECRYPT_TIMEOUT = 600
+
+# Lokale Sprachsynthese (Piper) für den Podcast-Dialog
+VOICES_DIR = Path(os.environ.get("VOICES_DIR", DATA_DIR / "voices"))
+PIPER_VOICES_URL = os.environ.get("PIPER_VOICES_URL", "https://huggingface.co/rhasspy/piper-voices/resolve/main")
+PIPER_VOICE_A = os.environ.get("PIPER_VOICE_A", "de_DE-kerstin-low")      # Moderatorin
+PIPER_VOICE_B = os.environ.get("PIPER_VOICE_B", "de_DE-thorsten-medium")  # Experte
+SPEAKER_A_NAME = os.environ.get("SPEAKER_A_NAME", "Lena")
+SPEAKER_B_NAME = os.environ.get("SPEAKER_B_NAME", "Jonas")

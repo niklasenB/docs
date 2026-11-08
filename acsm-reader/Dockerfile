@@ -24,7 +24,7 @@ RUN git clone --depth 1 --branch "$ACSM_CONVERTER_REF" "$ACSM_CONVERTER_REPO" re
 # --- Stufe 2: App ---
 FROM python:3.12-slim-bookworm
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      libzip4 libssl3 libcurl3-gnutls libpugixml1v5 \
+      libzip4 libssl3 libcurl3-gnutls libpugixml1v5 ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/src/libgourou/utils/acsmdownloader \
                     /usr/src/libgourou/utils/adept_activate \
@@ -32,6 +32,13 @@ COPY --from=builder /usr/src/libgourou/utils/acsmdownloader \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Deutsche Piper-Stimmen vorab laden (Moderatorin + Experte), damit der Podcast offline läuft.
+ARG PIPER_VOICES_URL=https://huggingface.co/rhasspy/piper-voices/resolve/main
+ARG PIPER_VOICES="de/de_DE/kerstin/low/de_DE-kerstin-low de/de_DE/thorsten/medium/de_DE-thorsten-medium"
+ENV VOICES_DIR=/opt/piper-voices
+RUN mkdir -p $VOICES_DIR && for v in $PIPER_VOICES; do for ext in onnx onnx.json; do \
+      python -c "import sys,urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" \
+        "$PIPER_VOICES_URL/$v.$ext" "$VOICES_DIR/$(basename $v).$ext"; done; done
 COPY app ./app
 ENV DATA_DIR=/data
 VOLUME /data

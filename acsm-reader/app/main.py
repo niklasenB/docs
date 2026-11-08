@@ -16,7 +16,7 @@ from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import acsm, ai, config, pdftools
+from . import acsm, ai, audio, config, pdftools
 from . import profile as prof
 
 STATIC = Path(__file__).parent / "static"
@@ -267,6 +267,115 @@ def post_personal(doc_id: str):
         return {"status": "ok", **_personal(d, analysis, p)}
     except ai.AnalysisError as e:
         raise HTTPException(502, str(e)) from e
+
+
+# --------------------------------------------------------------------------- Podcast
+
+def _audio_plan(d: Path, analysis: dict, kind: str, index: int) -> tuple[list[int], str, str]:
+    """Welche Artikel, welcher Fokus, welcher Cache-Schlüssel."""
+    arts, n = analysis["articles"], len(analysis["articles"])
+    if kind == "article":
+        if not 0 <= index < n:
+            raise HTTPException(400, "ungültiger Artikel")
+        return [index], f'Der Artikel „{arts[index]["title"]}“ ausführlich.', f"article-{index}"
+    if kind == "theme":
+        if not 0 <= index < len(analysis["themes"]):
+            raise HTTPException(400, "ungültiges Thema")
+        t = analysis["themes"][index]
+        return t["article_indices"], f'Das Thema „{t["name"]}“: {t["description"]}', f"theme-{index}"
+    if kind == "document":
+        return list(range(n)), "Überblick über die ganze Ausgabe; Wichtigstes zuerst, Rest kurz streifen.", "document"
+    if kind == "briefing":
+        p = prof.load()
+        if prof.is_empty(p):
+            raise HTTPException(400, "Für das persönliche Briefing bitte zuerst ein Profil anlegen.")
+        f = d / f"personal-{prof.fingerprint(p)}.json"
+        personal = json.loads(f.read_text()) if f.exists() else _personal(d, analysis, p)
+        rec = [r["article_index"] for r in personal["recommendations"] if r["score"] >= 2]
+        disc = [x["article_index"] for x in personal["discoveries"][:2]]
+        idx = list(dict.fromkeys(rec[:6] + disc))
+        if not idx:
+            raise HTTPException(400, "In diesem Dokument wurde nichts Passendes für dein Profil gefunden.")
+        focus = ("Persönliches Briefing: zuerst die Artikel, die zu den Interessen passen; am Ende "
+                 f"{len(disc)} Artikel 'über den Tellerrand' mit ihrer Brücke zu den Interessen: "
+                 + "; ".join(f'{x["article_index"]}: {x["bridge"]}' for x in personal["discoveries"][:2]))
+        return idx, focus, f"briefing-{prof.fingerprint(p)}"
+    raise HTTPException(400, "unbekannte Art")
+
+
+def _make_audio(job_id: str, d: Path, analysis: dict, indices: list[int], focus: str, length: str,
+                key: str, with_profile: bool) -> None:
+    progress = lambda msg: _update(job_id, message=msg)
+    try:
+        _update(job_id, stage="script", message="Claude schreibt das Gesprächsskript …")
+        pages = json.loads((d / "pages.json").read_text())
+        script = audio.write_script(analysis, pages, indices, focus, length,
+                                    prof.load() if with_profile else None)
+        _update(job_id, stage="tts", message="Stimmen werden lokal erzeugt …")
+        out = d / "audio"
+        out.mkdir(exist_ok=True)
+        meta = audio.render(script, out / key, progress)
+        meta["key"] = key
+        (out / f"{key}.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1))
+        _update(job_id, stage="done", message="Fertig.", audio_key=key)
+    except (audio.AudioError, ai.AnalysisError) as e:
+        _update(job_id, stage="error", error=str(e))
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        _update(job_id, stage="error", error=f"Unerwarteter Fehler: {e}")
+
+
+@app.post("/api/documents/{doc_id}/audio")
+def create_audio(doc_id: str, data: dict = Body(...)):
+    d = _doc_dir(doc_id)
+    analysis = json.loads((d / "analysis.json").read_text())
+    kind, length = str(data.get("kind")), str(data.get("length", "mittel"))
+    if length not in audio.LENGTHS:
+        raise HTTPException(400, "Länge: kurz, mittel oder lang")
+    indices, focus, key = _audio_plan(d, analysis, kind, int(data.get("index", -1)))
+    key = f"{key}-{length}"
+    job_id = _new_job(key)
+    if (d / "audio" / f"{key}.json").exists() and not data.get("regenerate"):
+        _update(job_id, stage="done", message="Bereits vorhanden.", audio_key=key)
+    else:
+        executor.submit(_make_audio, job_id, d, analysis, indices, focus, length, key,
+                        kind in ("briefing", "document", "theme"))
+    return {"job_id": job_id, "key": key}
+
+
+@app.get("/api/documents/{doc_id}/audio")
+def list_audio(doc_id: str):
+    out = _doc_dir(doc_id) / "audio"
+    if not out.is_dir():
+        return []
+    items = [json.loads(f.read_text()) for f in out.glob("*.json")]
+    return sorted(items, key=lambda m: m["key"])
+
+
+@app.get("/api/documents/{doc_id}/audio/{key}")
+def get_audio(doc_id: str, key: str):
+    if not all(c.isalnum() or c == "-" for c in key):
+        raise HTTPException(400, "ungültiger Schlüssel")
+    f = _doc_dir(doc_id) / "audio" / f"{key}.json"
+    if not f.exists():
+        raise HTTPException(404, "nicht gefunden")
+    return json.loads(f.read_text())
+
+
+@app.get("/api/documents/{doc_id}/audio/{key}/file")
+def get_audio_file(doc_id: str, key: str):
+    meta = get_audio(doc_id, key)
+    f = _doc_dir(doc_id) / "audio" / meta["file"]
+    return FileResponse(f, media_type="audio/mpeg" if f.suffix == ".mp3" else "audio/wav")
+
+
+@app.delete("/api/documents/{doc_id}/audio/{key}")
+def delete_audio(doc_id: str, key: str):
+    meta = get_audio(doc_id, key)
+    out = _doc_dir(doc_id) / "audio"
+    (out / meta["file"]).unlink(missing_ok=True)
+    (out / f"{key}.json").unlink(missing_ok=True)
+    return {"ok": True}
 
 
 app.mount("/", StaticFiles(directory=STATIC, html=True), name="static")

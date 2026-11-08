@@ -153,3 +153,28 @@ button.primary { background: var(--accent) !important; color: #fff; border-color
 .cta button { margin-top: 10px; padding: 8px 16px; border-radius: 8px; }
 .art .star { color: #d39b00; }
 .inline-spinner { width: 22px; height: 22px; margin: 24px auto 8px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+
+/* Podcast */
+.podbtn { display: inline-block; margin-top: 8px; padding: 8px 14px; border-radius: 99px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--text); }
+.podbtn.small { padding: 2px 10px; font-size: .82rem; margin: 0 0 0 auto; }
+.pod-item { display: flex; gap: 8px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; }
+.pod-item b { flex: 1; font-weight: 600; font-size: .92rem; }
+.pod-item button { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 3px 8px; }
+.player { border-top: 1px solid var(--line); padding: 10px 14px; background: var(--panel); max-height: 50%; display: flex; flex-direction: column; gap: 6px; }
+.pl-head { display: flex; gap: 8px; align-items: center; }
+.pl-head b { flex: 1; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-close { border: 0; background: none; font-size: 1.2rem; color: var(--muted); }
+.player audio { width: 100%; height: 36px; }
+.pl-now { font-size: .85rem; min-height: 1.2em; }
+.pl-now button { color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; }
+.pl-script { overflow-y: auto; margin: 0; padding: 0; list-style: none; font-size: .88rem; line-height: 1.45; }
+.pl-script li { padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+.pl-script li:hover { background: var(--bg); }
+.pl-script li.cur { background: var(--accent-soft); }
+.pl-script li .sp { font-weight: 700; margin-right: 4px; }
+.pl-script li .sp.A { color: #b0457a; }
+.pl-script li .sp.B { color: #2f7a5b; }
+@media (prefers-color-scheme: dark) { .pl-script li .sp.A { color: #ff8fc4; } .pl-script li .sp.B { color: #7fdcb3; } }
+.theme summary .podbtn.small { margin-left: 6px; }
+.tabs button { padding: 10px 2px; font-size: .92rem; }
+.tabs button[data-tab=podcasts] { flex: 0 0 44px; }

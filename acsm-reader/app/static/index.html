@@ -49,6 +49,29 @@
 </dialog>
 <div class="toast hidden" id="toast"></div>
 
+<!-- Podcast erzeugen -->
+<dialog id="audioDlg">
+  <form method="dialog">
+    <h2>🎧 Als Podcast anhören</h2>
+    <p id="audioSubject" class="muted"></p>
+    <label class="fl">Länge</label>
+    <div class="seg" id="lengthSeg">
+      <label><input type="radio" name="length" value="kurz"><span>kurz · ~3 min</span></label>
+      <label><input type="radio" name="length" value="mittel" checked><span>mittel · ~6 min</span></label>
+      <label><input type="radio" name="length" value="lang"><span>lang · ~10 min</span></label>
+    </div>
+    <p class="muted small">Dialog zwischen Moderatorin und Experte. Claude schreibt das Skript, die Stimmen werden lokal auf deinem Rechner erzeugt.</p>
+    <div id="audioProgress" class="hidden"><div class="inline-spinner"></div><p id="audioMsg" class="muted" style="text-align:center"></p></div>
+    <p class="error hidden" id="audioErr"></p>
+    <div id="audioExisting"></div>
+    <div class="dlg-actions">
+      <span class="spacer"></span>
+      <button value="cancel" formnovalidate>Schließen</button>
+      <button type="button" class="primary" id="audioCreate">Erzeugen</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- Startansicht: Dropzone + Bibliothek -->
 <main id="startView" class="start">
   <section class="dropzone" id="dropzone" tabindex="0">
@@ -84,6 +107,7 @@
       <button data-tab="overview">Überblick</button>
       <button data-tab="themes">Themen</button>
       <button data-tab="articles">Artikel</button>
+      <button data-tab="podcasts" title="Podcasts">🎧</button>
       <button data-tab="search">Suche</button>
     </nav>
 
@@ -98,6 +122,7 @@
       <p class="muted small">Analysiert mit <span id="ovModel"></span> ·
         <button class="linkbtn" id="reanalyzeBtn">neu analysieren</button> ·
         <button class="linkbtn danger" id="deleteBtn">löschen</button></p>
+      <button class="podbtn" id="docPodcastBtn">🎧 Ganze Ausgabe als Podcast</button>
     </div>
 
     <div class="tab hidden" id="tab-themes"><div id="themes"></div></div>
@@ -107,9 +132,22 @@
       <ul id="articles" class="articles"></ul>
     </div>
 
+    <div class="tab hidden" id="tab-podcasts"><div id="podcasts"></div></div>
+
     <div class="tab hidden" id="tab-search">
       <form id="searchForm"><input type="search" id="searchInput" placeholder="Volltextsuche im PDF …"></form>
       <ul id="searchResults" class="results"></ul>
+    </div>
+    <div class="player hidden" id="player">
+      <div class="pl-head">
+        <b id="plTitle"></b>
+        <button class="linkbtn small" id="plScriptBtn">Skript</button>
+        <button class="pl-close" id="plClose" title="Schließen">×</button>
+      </div>
+      <audio id="plAudio" controls preload="metadata"></audio>
+      <div class="pl-now" id="plNow"></div>
+      <label class="small muted"><input type="checkbox" id="plFollow" checked> PDF blättert mit</label>
+      <ol class="pl-script hidden" id="plScript"></ol>
     </div>
   </aside>
 

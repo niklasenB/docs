@@ -19,6 +19,7 @@ PDF- und EPUB-Dateien ohne DRM kannst du auch direkt hochladen.
 | **Dropzone** | `.acsm`, `.pdf`, `.epub` per Drag & Drop oder Dateiauswahl, Fortschritt in Schritten |
 | **Profil** | Interessen, „Über mich“, Ausschlüsse und Entdeckungsmodus (Fokus / Ausgewogen / Neugierig) |
 | **Für dich** | Was im Heft für dich relevant ist (mit Begründung und Relevanz-Sternen), Artikel „über den Tellerrand“ mit Anknüpfungspunkt an deine Interessen, Leitfragen und Suchbegriffe zum Vertiefen sowie neue Interessen zum Übernehmen per Klick |
+| **Podcast** 🎧 | Dialog zwischen Moderatorin und Experte, wahlweise als persönliches Briefing, pro Thema, pro Artikel oder für die ganze Ausgabe, in drei Längen. Claude schreibt das Skript, Piper erzeugt die Stimmen **lokal**. Im Player läuft das Skript mit, ein Klick auf eine Zeile springt an diese Stelle, und das PDF blättert automatisch zum gerade besprochenen Artikel |
 | **Überblick** | Titel, Gesamtzusammenfassung, Kernaussagen |
 | **Themen** | Themenblöcke mit Beschreibung und den zugehörigen Artikeln |
 | **Artikel** | Alle Artikel mit Seitenbereich, Kurzfassung, Schlagworten und Filter |
@@ -52,6 +53,24 @@ uvicorn app.main:app --port 8080
 Für ACSM-Dateien müssen zusätzlich `adept_activate`, `acsmdownloader` und `adept_remove` (libgourou)
 im `PATH` liegen. Oben rechts zeigt die App an, ob ACSM verfügbar ist.
 
+## Podcast (lokale Sprachsynthese)
+
+Die Stimmen erzeugt [Piper](https://github.com/OHF-Voice/piper1-gpl) auf deinem Rechner. Es fallen
+keine Kosten an, und der Skripttext verlässt den Rechner für die Sprachausgabe nicht. Claude wird nur
+für das Schreiben des Skripts verwendet. Standardstimmen:
+
+- Moderatorin „Lena“: `de_DE-kerstin-low`
+- Experte „Jonas“: `de_DE-thorsten-medium`
+
+Im Docker-Image sind beide Stimmen schon enthalten. Ohne Docker werden sie beim ersten Podcast von
+Hugging Face (`rhasspy/piper-voices`) nach `data/voices/` geladen. Alternativ legst du die Dateien
+`<stimme>.onnx` und `<stimme>.onnx.json` selbst dort ab. Andere Stimmen findest du unter
+<https://huggingface.co/rhasspy/piper-voices/tree/main/de/de_DE>. Mit `ffmpeg` im PATH wird MP3
+erzeugt, sonst WAV.
+
+Die Erzeugung braucht etwas Rechenzeit: Ein 6-Minuten-Podcast dauert auf einer normalen CPU grob
+eine Minute für das Skript und etwa ein bis zwei Minuten für die Stimmen. Fertige Podcasts werden gespeichert.
+
 ## Konfiguration (Umgebungsvariablen)
 
 | Variable | Standard | Bedeutung |
@@ -62,6 +81,9 @@ im `PATH` liegen. Oben rechts zeigt die App an, ob ACSM verfügbar ist.
 | `CLAUDE_FALLBACK` | `1` | Serverseitiger Ausweich-Modus bei Ablehnung (nur Claude API) |
 | `SUMMARY_LANGUAGE` | `Deutsch` | Sprache der Zusammenfassungen |
 | `CHUNK_CHARS` | `300000` | Zeichen pro Analyse-Abschnitt. Größere Dokumente werden abschnittsweise analysiert und dann zusammengeführt |
+| `PIPER_VOICE_A` / `PIPER_VOICE_B` | `de_DE-kerstin-low` / `de_DE-thorsten-medium` | Piper-Stimmen für Moderatorin / Experte |
+| `SPEAKER_A_NAME` / `SPEAKER_B_NAME` | `Lena` / `Jonas` | Namen im Gespräch |
+| `VOICES_DIR` | `data/voices` | Ablage der Stimmen |
 | `DATA_DIR` | `./data` | Speicherort für Bibliothek und Adobe-Aktivierung |
 | `MAX_UPLOAD_MB` | `200` | Upload-Limit |
 
@@ -90,6 +112,7 @@ app/acsm.py       libgourou-Aufrufe (Aktivierung, Download, Aufbereitung)
 app/pdftools.py   EPUB→PDF, Text/Inhaltsverzeichnis je Seite, Volltextsuche
 app/ai.py         Claude-Analyse (Artikel, Zusammenfassung, Themen) und Personalisierung
 app/profile.py    Leseprofil und Leseverlauf
+app/audio.py      Podcast: Dialog-Skript (Claude) + lokale Sprachsynthese (Piper)
 app/static/       Oberfläche (Dropzone, Übersicht, PDF-Viewer mit pdf.js)
 Dockerfile        baut libgourou + App
 ```
@@ -108,3 +131,5 @@ Beachte außerdem: Der Text des Dokuments wird zur Analyse an die Claude-API von
 
 - pdf.js (Mozilla, Apache-2.0) liegt unter `app/static/vendor/pdfjs/`.
 - libgourou/uPDFParser (LGPL-3.0) werden beim Docker-Build aus den Quellen gebaut.
+- piper-tts (GPL-3.0) wird als Python-Paket installiert. Für die Stimmen gelten die Lizenzangaben in
+  ihren `MODEL_CARD`-Dateien bei rhasspy/piper-voices.
