@@ -1,0 +1,14 @@
+services:
+  acsm-reader:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # optional:
+      # - CLAUDE_MODEL=claude-opus-5-5
+      # - CLAUDE_EFFORT=medium
+      # - SUMMARY_LANGUAGE=Deutsch
+    volumes:
+      - ./data:/data   # Bibliothek + Adobe-Geräteaktivierung bleiben erhalten
+    restart: unless-stopped

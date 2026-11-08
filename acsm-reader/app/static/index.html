@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ACSM Reader – Zusammenfassung &amp; Navigation</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <button class="brand" id="homeBtn" title="Zur Startseite">📚 ACSM Reader</button>
+  <span class="doc-title" id="docTitle"></span>
+  <span class="spacer"></span>
+  <span class="badge" id="statusBadge"></span>
+</header>
+
+<!-- Startansicht: Dropzone + Bibliothek -->
+<main id="startView" class="start">
+  <section class="dropzone" id="dropzone" tabindex="0">
+    <div class="dz-icon">⬇</div>
+    <h1>ACSM-Datei hier ablegen</h1>
+    <p>oder <label class="link">Datei auswählen<input type="file" id="fileInput" accept=".acsm,.pdf,.epub" hidden></label></p>
+    <p class="hint">Auch PDF und EPUB werden direkt angenommen.</p>
+  </section>
+
+  <section class="progress hidden" id="progress">
+    <ol class="steps">
+      <li data-stage="convert">ACSM einlösen</li>
+      <li data-stage="prepare">PDF vorbereiten</li>
+      <li data-stage="analyze">KI-Analyse</li>
+      <li data-stage="done">Fertig</li>
+    </ol>
+    <div class="spinner"></div>
+    <p id="progressMsg"></p>
+    <p class="error hidden" id="progressErr"></p>
+  </section>
+
+  <section class="library">
+    <h2>Bibliothek</h2>
+    <ul id="library"><li class="muted">Noch keine Dokumente.</li></ul>
+  </section>
+</main>
+
+<!-- Dokumentansicht: Übersicht links, PDF rechts -->
+<main id="docView" class="doc hidden">
+  <aside class="side">
+    <nav class="tabs">
+      <button data-tab="overview" class="active">Überblick</button>
+      <button data-tab="themes">Themen</button>
+      <button data-tab="articles">Artikel</button>
+      <button data-tab="search">Suche</button>
+    </nav>
+
+    <div class="tab" id="tab-overview">
+      <h2 id="ovTitle"></h2>
+      <p class="muted" id="ovMeta"></p>
+      <div id="ovSummary" class="summary"></div>
+      <h3>Kernaussagen</h3>
+      <ul id="ovPoints" class="points"></ul>
+      <p class="muted small">Analysiert mit <span id="ovModel"></span> ·
+        <button class="linkbtn" id="reanalyzeBtn">neu analysieren</button> ·
+        <button class="linkbtn danger" id="deleteBtn">löschen</button></p>
+    </div>
+
+    <div class="tab hidden" id="tab-themes"><div id="themes"></div></div>
+
+    <div class="tab hidden" id="tab-articles">
+      <input type="search" id="articleFilter" placeholder="Artikel filtern (Titel, Schlagwort, Inhalt) …">
+      <ul id="articles" class="articles"></ul>
+    </div>
+
+    <div class="tab hidden" id="tab-search">
+      <form id="searchForm"><input type="search" id="searchInput" placeholder="Volltextsuche im PDF …"></form>
+      <ul id="searchResults" class="results"></ul>
+    </div>
+  </aside>
+
+  <section class="viewer">
+    <div class="toolbar">
+      <button id="prevBtn" title="Vorherige Seite (←)">‹</button>
+      <input id="pageInput" type="number" min="1" value="1"> <span id="pageTotal">/ –</span>
+      <button id="nextBtn" title="Nächste Seite (→)">›</button>
+      <span class="sep"></span>
+      <button id="zoomOut" title="Verkleinern">−</button>
+      <span id="zoomLabel">100 %</span>
+      <button id="zoomIn" title="Vergrößern">+</button>
+      <button id="fitBtn" title="An Breite anpassen">↔</button>
+      <span class="spacer"></span>
+      <span id="currentArticle" class="current-article"></span>
+    </div>
+    <div class="pages" id="pages"></div>
+  </section>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
